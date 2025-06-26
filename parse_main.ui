@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+  <class>MainWindow</class>
+  <widget class="QMainWindow" name="MainWindow">
+    <property name="geometry">
+      <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>650</width>
+        <height>400</height>
+      </rect>
+    </property>
+    <property name="windowTitle">
+      <string>VK Парсер</string>
+    </property>
+    <property name="styleSheet">
+      <string notr="true">
+        QMainWindow {
+          background-color: #353535;
+        }
+        QWidget {
+          background-color: #353535;
+          color: white;
+        }
+        QTextEdit {
+          background-color: #454545;
+          color: white;
+          border: 1px solid #555;
+          padding: 5px;
+          font-size: 12px;
+        }
+        QDateEdit {
+          background-color: #454545;
+          color: white;
+          border: 1px solid #555;
+          padding: 3px;
+        }
+        QPushButton {
+          background-color: #505050;
+          color: white;
+          border: 1px solid #555;
+          padding: 7px;
+          min-width: 150px;
+          font-size: 12px;
+          border-radius: 4px;
+        }
+        QPushButton:hover {
+          background-color: #606060;
+        }
+        QPushButton:pressed {
+          background-color: #404040;
+        }
+        QLabel {
+          color: white;
+          font-size: 12px;
+        }
+        QProgressBar {
+          border: 1px solid #444;
+          border-radius: 4px;
+          text-align: center;
+          height: 20px;
+        }
+        QProgressBar::chunk {
+          background-color: #3daee9;
+          border-radius: 3px;
+        }
+      </string>
+    </property>
+    <widget class="QWidget" name="centralwidget">
+      <!-- Текстовое поле для поиска -->
+      <widget class="QTextEdit" name="textEdit">
+        <property name="geometry">
+          <rect>
+            <x>20</x>
+            <y>20</y>
+            <width>320</width>
+            <height>300</height>
+          </rect>
+        </property>
+        <property name="placeholderText">
+          <string>Введите текст для поиска (разделяйте запросы точкой с запятой ;)</string>
+        </property>
+      </widget>
+
+      <!-- Блок выбора дат -->
+      <widget class="QWidget" name="dateWidget">
+        <property name="geometry">
+          <rect>
+            <x>360</x>
+            <y>20</y>
+            <width>270</width>
+            <height>80</height>
+          </rect>
+        </property>
+        <layout class="QFormLayout" name="dateLayout">
+          <item row="0" column="0">
+            <widget class="QLabel" name="startDateLabel">
+              <property name="text">
+                <string>Начальная дата:</string>
+              </property>
+            </widget>
+          </item>
+          <item row="0" column="1">
+            <widget class="QDateEdit" name="startDateEdit">
+              <property name="calendarPopup">
+                <bool>true</bool>
+              </property>
+              <property name="date">
+                <date>
+                  <year>2023</year>
+                  <month>1</month>
+                  <day>1</day>
+                </date>
+              </property>
+              <property name="displayFormat">
+                <string>dd.MM.yyyy</string>
+              </property>
+            </widget>
+          </item>
+          <item row="1" column="0">
+            <widget class="QLabel" name="endDateLabel">
+              <property name="text">
+                <string>Конечная дата:</string>
+              </property>
+            </widget>
+          </item>
+          <item row="1" column="1">
+            <widget class="QDateEdit" name="endDateEdit">
+              <property name="calendarPopup">
+                <bool>true</bool>
+              </property>
+              <property name="date">
+                <date>
+                  <year>2023</year>
+                  <month>1</month>
+                  <day>1</day>
+                </date>
+              </property>
+              <property name="displayFormat">
+                <string>dd.MM.yyyy</string>
+              </property>
+            </widget>
+          </item>
+        </layout>
+      </widget>
+
+      <!-- Блок кнопок -->
+      <widget class="QWidget" name="buttonWidget">
+        <property name="geometry">
+          <rect>
+            <x>360</x>
+            <y>110</y>
+            <width>270</width>
+            <height>180</height>
+          </rect>
+        </property>
+        <layout class="QVBoxLayout" name="buttonLayout">
+          <item>
+            <widget class="QPushButton" name="parseButton">
+              <property name="text">
+                <string>Начать парсинг</string>
+              </property>
+            </widget>
+          </item>
+          <item>
+            <widget class="QPushButton" name="selectFolderButton">
+              <property name="text">
+                <string>Выбрать папку для сохранения</string>
+              </property>
+            </widget>
+          </item>
+          <item>
+            <widget class="QPushButton" name="loadCommunitiesButton">
+              <property name="text">
+                <string>Загрузить список пабликов</string>
+              </property>
+            </widget>
+          </item>
+        </layout>
+      </widget>
+
+      <!-- Прогресс-бар -->
+      <widget class="QProgressBar" name="progressBar">
+        <property name="geometry">
+          <rect>
+            <x>20</x>
+            <y>330</y>
+            <width>610</width>
+            <height>20</height>
+          </rect>
+        </property>
+        <property name="value">
+          <number>0</number>
+        </property>
+        <property name="minimum">
+          <number>0</number>
+        </property>
+        <property name="maximum">
+          <number>100</number>
+        </property>
+      </widget>
+
+      <!-- Статус-бар -->
+      <widget class="QLabel" name="statusLabel">
+        <property name="geometry">
+          <rect>
+            <x>20</x>
+            <y>360</y>
+            <width>610</width>
+            <height>20</height>
+          </rect>
+        </property>
+        <property name="text">
+          <string>Готов к работе</string>
+        </property>
+        <property name="alignment">
+          <set>Qt::AlignCenter</set>
+        </property>
+      </widget>
+    </widget>
+  </widget>
+  <resources/>
+  <connections/>
+</ui>
