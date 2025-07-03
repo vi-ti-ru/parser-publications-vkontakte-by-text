@@ -1,12 +1,13 @@
 import sys
 import os
-from dotenv import load_dotenv
 import re
 import json
 import time
 import requests
 import logging
 import openpyxl
+import hashlib
+from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (
@@ -16,15 +17,17 @@ from PyQt5.QtCore import pyqtSignal, QDate
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
+from PyQt5 import uic
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
+
 load_dotenv()
 # Константы
-VK_TOKEN = os.getenv("VK_TOKEN") # Токен для доступа к API VK
+VK_TOKEN = os.getenv("VK_TOKEN") # Токен для доступа к API VK, создаете файл .env и добавляете туда свой токен (в формате VK_TOKEN=токен в той же директории где и файл)
 VK_VERSION = '5.137'
 MAX_POSTS = 100
 MAX_WORKERS = 5
@@ -142,13 +145,12 @@ class VKParser(QMainWindow):
         Вычисляет MD5 хэш списка сообществ для сравнения
         Используется для определения, изменился ли список сообществ с прошлого раза
         """
-        import hashlib
+        
         # Сортируем ключи для стабильного хэширования
         communities_str = json.dumps(self.communities, sort_keys=True)
         return hashlib.md5(communities_str.encode('utf-8')).hexdigest()
 
     def setup_ui(self):
-        from PyQt5 import uic
         uic.loadUi("parse_main.ui", self)
         
         self.startDateEdit.setDate(QDate.currentDate())
@@ -206,9 +208,11 @@ class VKParser(QMainWindow):
     def extract_domain_from_link(self, link):
         if not link:
             return None
-            
+
         link = str(link).strip().lower()
-        patterns = [
+        
+        # Для VK
+        patterns_vk = [
             r'vk\.com/([a-z0-9_\-\.]+)',
             r'club(\d+)',
             r'public(\d+)',
@@ -216,11 +220,28 @@ class VKParser(QMainWindow):
             r'([a-z0-9_\-\.]+)$'
         ]
         
-        for pattern in patterns:
+        # Для Telegram
+        patterns_tg = [
+            r'telegram\.me/(\w+)(/\d+)?',
+            r't\.me/(\w+)(/\d+)?'
+        ]
+        
+        # Для Одноклассников
+        patterns_ok = [
+            r'ok\.ru/group/(\d+)',
+            r'ok\.ru/profile/(\d+)'
+        ]
+
+        for pattern in patterns_vk + patterns_tg + patterns_ok:
             match = re.search(pattern, link)
             if match:
                 domain = match.group(1)
-                return f"club{domain}" if domain.isdigit() else domain
+                if "vk.com" in link or any(p in link for p in ["club", "public", "event"]):
+                    return f"vk_{domain}"  # Префикс для VK
+                elif "telegram" in link or "t.me" in link:
+                    return f"tg_{domain}"  # Префикс для Telegram
+                elif "ok.ru" in link:
+                    return f"ok_{domain}"  # Префикс для Одноклассников
         return None
 
     def get_search_texts(self):
@@ -299,7 +320,9 @@ class VKParser(QMainWindow):
                 break
                 
             text = post.get('text', '').lower()
-            if any(search_text in text for search_text in search_texts):
+            found_words = [word for word in search_texts if word in text]
+            
+            if found_words:
                 results.append({
                     'post_id': post['id'],
                     'owner_id': post['owner_id'],
@@ -308,7 +331,8 @@ class VKParser(QMainWindow):
                     'views': post.get('views', {}).get('count', 0),
                     'likes': post.get('likes', {}).get('count', 0),
                     'reposts': post.get('reposts', {}).get('count', 0),
-                    'link': f"https://vk.com/wall{post['owner_id']}_{post['id']}"
+                    'link': f"https://vk.com/wall{post['owner_id']}_{post['id']}",
+                    'found_words': ', '.join(found_words)  # Новые слова, которые были найдены
                 })
                 
         return results
@@ -316,7 +340,6 @@ class VKParser(QMainWindow):
     def process_community(self, community, search_texts, start_date, end_date):
         if self.stop_flag:
             return None
-            
         try:
             posts = self.get_group_posts(community['domain'], start_date, end_date)
             if not posts:
@@ -347,7 +370,6 @@ class VKParser(QMainWindow):
             ws.cell(row=row_num, column=2, value=comm['name'])
             ws.cell(row=row_num, column=3, value=comm.get('reason', 'Нет совпадений'))
         
-
         for row in ws.iter_rows():
             for cell in row:
                 cell.alignment = Alignment(wrap_text=True)
@@ -380,10 +402,8 @@ class VKParser(QMainWindow):
             
             if same_communities and os.path.exists(filepath):
                 wb = openpyxl.load_workbook(filepath)
-                
                 if current_date in wb.sheetnames:
                     del wb[current_date]
-                
                 ws = wb.create_sheet(title=current_date)
             else:
                 wb = Workbook()
@@ -393,7 +413,7 @@ class VKParser(QMainWindow):
             if data:
                 headers = [
                     'Ссылка на сообщество', 'Название', 'Ссылка на пост',
-                    'Текст поста', 'Дата', 'Просмотры', 'Лайки', 'Репосты'
+                    'Текст поста', 'Найденные слова', 'Дата', 'Просмотры', 'Лайки', 'Репосты'
                 ]
                 
                 for col_num, header in enumerate(headers, 1):
@@ -411,10 +431,11 @@ class VKParser(QMainWindow):
                         ws.cell(row=row_num, column=3, value=res['link']).font = LINK_FONT
                         text_cell = ws.cell(row=row_num, column=4, value=res['text'])
                         text_cell.alignment = Alignment(wrap_text=True)
-                        ws.cell(row=row_num, column=5, value=res['date'])
-                        ws.cell(row=row_num, column=6, value=res['views'])
-                        ws.cell(row=row_num, column=7, value=res['likes'])
-                        ws.cell(row=row_num, column=8, value=res['reposts'])
+                        ws.cell(row=row_num, column=5, value=res['found_words'])  # Новая колонка с найденными словами
+                        ws.cell(row=row_num, column=6, value=res['date'])
+                        ws.cell(row=row_num, column=7, value=res['views'])
+                        ws.cell(row=row_num, column=8, value=res['likes'])
+                        ws.cell(row=row_num, column=9, value=res['reposts'])
                         row_num += 1
                 
                 for column in ws.columns:
@@ -572,6 +593,7 @@ if __name__ == "__main__":
     parser = VKParser()
     parser.show()
     sys.exit(app.exec_())
+
 #______________________________#
 ###########################>.< #
 ##  WITH LOVE FROM Vi_Ti ##>.< #
