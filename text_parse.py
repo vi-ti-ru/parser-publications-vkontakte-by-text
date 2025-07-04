@@ -211,7 +211,6 @@ class VKParser(QMainWindow):
 
         link = str(link).strip().lower()
         
-        # Для VK
         patterns_vk = [
             r'vk\.com/([a-z0-9_\-\.]+)',
             r'club(\d+)',
@@ -219,29 +218,20 @@ class VKParser(QMainWindow):
             r'event(\d+)',
             r'([a-z0-9_\-\.]+)$'
         ]
-        
-        # Для Telegram
-        patterns_tg = [
-            r'telegram\.me/(\w+)(/\d+)?',
-            r't\.me/(\w+)(/\d+)?'
-        ]
-        
-        # Для Одноклассников
+
         patterns_ok = [
-            r'ok\.ru/group/(\d+)',
-            r'ok\.ru/profile/(\d+)'
+            r'ok\.ru/([a-z0-9_\-\.]+)',
         ]
 
-        for pattern in patterns_vk + patterns_tg + patterns_ok:
+        patterns_tg = [
+            r'tg\.me/([a-z0-9_\-\.]+)',
+        ]
+
+        for pattern in patterns_vk:
             match = re.search(pattern, link)
             if match:
                 domain = match.group(1)
-                if "vk.com" in link or any(p in link for p in ["club", "public", "event"]):
-                    return f"vk_{domain}"  # Префикс для VK
-                elif "telegram" in link or "t.me" in link:
-                    return f"tg_{domain}"  # Префикс для Telegram
-                elif "ok.ru" in link:
-                    return f"ok_{domain}"  # Префикс для Одноклассников
+                return f"vk_{domain}"
         return None
 
     def get_search_texts(self):
@@ -281,6 +271,11 @@ class VKParser(QMainWindow):
         raise VKAPIError(f"Не удалось выполнить запрос после {MAX_ATTEMPTS} попыток")
 
     def get_group_posts(self, domain, start_date, end_date):
+        if not domain.startswith('vk_'):
+            logging.error(f"Некорректный домен для VK: {domain}")
+            return []
+        
+        vk_domain = domain[3:]
         posts = []
         offset = 0
         start_ts = int(time.mktime(start_date.timetuple()))
@@ -289,7 +284,7 @@ class VKParser(QMainWindow):
         while offset < MAX_POSTS and not self.stop_flag:
             try:
                 data = self.make_vk_request('wall.get', {
-                    'domain': domain,
+                    'domain': vk_domain,  # Используем домен без префикса
                     'count': min(100, MAX_POSTS - offset),
                     'offset': offset,
                     'filter': 'owner'
@@ -341,7 +336,15 @@ class VKParser(QMainWindow):
         if self.stop_flag:
             return None
         try:
-            posts = self.get_group_posts(community['domain'], start_date, end_date)
+            if community['domain'].startswith('vk_'):
+                posts = self.get_group_posts(community['domain'], start_date, end_date)
+            elif community['domain'].startswith('tg_'):
+                posts = self.get_telegram_posts(community['domain'], start_date, end_date)
+            elif community['domain'].startswith('ok_'):
+                posts = self.get_ok_posts(community['domain'], start_date, end_date)
+            else:
+                return None
+            
             if not posts:
                 return None
                 
@@ -514,7 +517,8 @@ class VKParser(QMainWindow):
 
     def run_parsing(self, start_date, end_date):
         try:
-            total = len(self.communities)
+            vk_communities = [comm for comm in self.communities if comm['domain'].startswith('vk_')]
+            total = len(vk_communities)
             results = []
             empty_communities = []
             
@@ -526,7 +530,7 @@ class VKParser(QMainWindow):
                         self.search_texts,
                         start_date,
                         end_date
-                    ): comm for comm in self.communities
+                    ): comm for comm in vk_communities
                 }
                 
                 for i, future in enumerate(as_completed(futures), 1):
