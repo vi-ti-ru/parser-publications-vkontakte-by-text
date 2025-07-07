@@ -236,7 +236,7 @@ class VKParser(QMainWindow):
                 return f"vk_{domain}"
         return None
         
-        # пока что для примера
+        # пока что для шаблона
         for pattern in patterns_ok:
             if match:
                 if match.group(1):
@@ -617,9 +617,8 @@ if __name__ == "__main__":
     parser.show()
     sys.exit(app.exec_())
 
-#______________________________#
-###########################>.< #
-##  WITH LOVE FROM Vi_Ti ##>.< #
-##          2025         ##>.< #
-###########################>.< #
-#______________________________#
+
+###########################
+##  WITH LOVE FROM Vi_Ti ##
+##          2025         ##
+###########################
