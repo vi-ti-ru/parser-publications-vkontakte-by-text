@@ -221,10 +221,12 @@ class VKParser(QMainWindow):
 
         patterns_ok = [
             r'ok\.ru/([a-z0-9_\-\.]+)',
+            r'club(\d+)'
         ]
 
         patterns_tg = [
             r'tg\.me/([a-z0-9_\-\.]+)',
+            r't\.me/([a-z0-9_\-\.]+)'
         ]
 
         for pattern in patterns_vk:
@@ -233,7 +235,24 @@ class VKParser(QMainWindow):
                 domain = match.group(1)
                 return f"vk_{domain}"
         return None
-
+        
+        # пока что для примера
+        for pattern in patterns_ok:
+            if match:
+                if match.group(1):
+                    domain = match.group(1)
+                    return f"ok_{domain}"
+                else:
+                    domain = match.group(2)
+                    return f"ok_{domain}"
+        return None
+        
+        for pattern in patterns_tg:
+            if match:
+                domain = match.group(1)
+                return f"tg_{domain}"
+        return None
+    
     def get_search_texts(self):
         text = self.textEdit.toPlainText().strip()
         return [t.strip() for t in text.split(";") if t.strip()] if text else []
