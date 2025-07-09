@@ -27,7 +27,11 @@ logging.basicConfig(
 
 load_dotenv()
 # Константы
-VK_TOKEN = os.getenv("VK_TOKEN") # Токен для доступа к API VK, создаете файл .env и добавляете туда свой токен (в формате VK_TOKEN=токен в той же директории где и файл)
+# Токены для доступа к API, создаете файл .env в ту же директорию, где лежит файл parse_main.py
+OK_TOKEN = os.getenv("OK_TOKEN")
+HASH_TOKEN = os.getenv("TELEGRAM_API_HASH")
+TG_API = os.getenv("TELEGRAM_API_ID")
+VK_TOKEN = os.getenv("VK_TOKEN") 
 VK_VERSION = '5.137'
 MAX_POSTS = 100
 MAX_WORKERS = 5
@@ -346,7 +350,7 @@ class VKParser(QMainWindow):
                     'likes': post.get('likes', {}).get('count', 0),
                     'reposts': post.get('reposts', {}).get('count', 0),
                     'link': f"https://vk.com/wall{post['owner_id']}_{post['id']}",
-                    'found_words': ', '.join(found_words)  # Новые слова, которые были найдены
+                    'found_words': ', '.join(found_words)  # слова по которым найден текст
                 })
                 
         return results
