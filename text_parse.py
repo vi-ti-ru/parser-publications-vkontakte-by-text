@@ -439,7 +439,7 @@ class VKParser(QMainWindow):
                     elif error['error_code'] in [5, 15, 18, 100]:
                         raise VKAPIError(f"VK API error {error['error_code']}: {error['error_msg']}")
                     continue
-
+                    
                 return data
             
             except requests.exceptions.RequestException as e:
@@ -649,7 +649,7 @@ class VKParser(QMainWindow):
             if not phone:
                 QMessageBox.warning(auth_dialog, "Ошибка", "Введите номер телефона")
                 return
-                
+            
             # Сохраняем данные для последующих попыток
             self.telegram_auth_data = {
                 'phone': phone,
