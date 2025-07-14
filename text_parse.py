@@ -7,6 +7,7 @@ import requests
 import logging
 import openpyxl
 import hashlib
+import asyncio
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -18,6 +19,13 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from PyQt5 import uic
+from telethon.tl.types import Channel, MessageMediaPhoto, MessageMediaDocument
+from telethon.sync import TelegramClient
+from telethon.errors import (
+    SessionPasswordNeededError, 
+    PhoneNumberInvalidError,
+    FloodWaitError
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,10 +36,12 @@ logging.basicConfig(
 load_dotenv()
 # Константы
 # Токены для доступа к API, создаете файл .env в ту же директорию, где лежит файл parse_main.py
+# Одноклассники OAuth vk используют... что блять, надо разбираться 
 OK_TOKEN = os.getenv("OK_TOKEN")
+OK_SECRET_KEY = os.getenv("OK_SECRET_KEY")
 HASH_TOKEN = os.getenv("TELEGRAM_API_HASH")
 TG_API = os.getenv("TELEGRAM_API_ID")
-VK_TOKEN = os.getenv("VK_TOKEN") 
+VK_TOKEN = os.getenv("VK_TOKEN")
 VK_VERSION = '5.137'
 MAX_POSTS = 100
 MAX_WORKERS = 5
@@ -45,6 +55,144 @@ HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
 HEADER_ALIGN = Alignment(horizontal='center', vertical='center', wrap_text=True)
 LINK_FONT = Font(color="0000FF", underline="single")
 
+class TelegramParser:
+    def __init__(self):
+        self.client = None
+        self.phone = None
+        
+    async def auth(self, phone, code=None, password=None):
+        try:
+            self.client = TelegramClient('session_name', TG_API, HASH_TOKEN)
+            await self.client.start(phone=phone, code=code, password=password)
+            self.phone = phone
+            return True
+        except Exception as e:
+            logging.error(f"Ошибка авторизации Telegram: {str(e)}")
+            return False
+
+    async def get_channel_posts(self, channel_name, start_date, end_date):
+        if not self.client:
+            raise Exception("Клиент Telegram не инициализирован")
+
+        posts = []
+        start_ts = int(time.mktime(start_date.timetuple()))
+        end_ts = int(time.mktime(end_date.timetuple()))
+
+        try:
+            # Пробуем получить канал по username или ID
+            entity = await self.client.get_entity(channel_name)
+            
+            async for message in self.client.iter_messages(entity):
+                if message.date.timestamp() < start_ts:
+                    break
+                    
+                if start_ts <= message.date.timestamp() < end_ts:
+                    post = {
+                        'text': message.text or "",
+                        'date': message.date.strftime('%d.%m.%Y %H:%M'),
+                        'views': message.views or 0,
+                        'id': message.id,
+                        'link': f"https://t.me/{channel_name}/{message.id}"
+                    }
+                    
+                    if message.media:
+                        if isinstance(message.media, MessageMediaPhoto):
+                            post['media'] = 'photo'
+                        elif isinstance(message.media, MessageMediaDocument):
+                            post['media'] = 'document'
+                    
+                    posts.append(post)
+                    
+        except Exception as e:
+            logging.error(f"Ошибка получения постов: {str(e)}")
+            
+        return posts
+
+#попытка не пытка, мб у них так же как и у вкXD
+class OKParser:
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        self.access_token = None
+        
+    def auth(self, access_token):
+        """Установка токена доступа"""
+        self.access_token = access_token
+        
+    def get_group_posts(self, group_id, start_date, end_date):
+        """Получение постов из группы OK"""
+        if not self.access_token:
+            raise Exception("Токен доступа OK не установлен")
+
+        posts = []
+        start_ts = int(time.mktime(start_date.timetuple()))
+        end_ts = int(time.mktime(end_date.timetuple()))
+        
+        try:
+            # Получаем информацию о группе
+            params = {
+                'application_key': OK_TOKEN,
+                'format': 'json',
+                'method': 'group.getInfo',
+                'gid': group_id,
+                'fields': 'name,description',
+                'access_token': self.access_token
+            }
+            
+            group_info = self.session.get(
+                'https://api.ok.ru/fb.do',
+                params=params,
+                timeout=10
+            ).json()
+            
+            if 'error' in group_info:
+                raise Exception(f"OK API error: {group_info['error']}")
+                
+            # Получаем посты
+            params = {
+                'application_key': OK_TOKEN,
+                'format': 'json',
+                'method': 'group.getFeed',
+                'gid': group_id,
+                'count': 100,
+                'access_token': self.access_token
+            }
+            
+            response = self.session.get(
+                'https://api.ok.ru/fb.do',
+                params=params,
+                timeout=10
+            ).json()
+            
+            if 'error' in response:
+                raise Exception(f"OK API error: {response['error']}")
+                
+            for post in response.get('feed', []):
+                if 'created' not in post:
+                    continue
+                    
+                post_time = int(post['created'])
+                if post_time < start_ts:
+                    continue
+                if post_time >= end_ts:
+                    continue
+                    
+                posts.append({
+                    'text': post.get('text', ''),
+                    'date': datetime.fromtimestamp(post_time).strftime('%d.%m.%Y %H:%M'),
+                    'likes': post.get('like_count', 0),
+                    'comments': post.get('comments_count', 0),
+                    'id': post['id'],
+                    'link': f"https://ok.ru/group/{group_id}/topic/{post['id']}"
+                })
+                
+        except Exception as e:
+            logging.error(f"Ошибка OK API: {str(e)}")
+            
+        return posts
+
 class VKAPIError(Exception):
     pass
 
@@ -52,9 +200,10 @@ class VKParser(QMainWindow):
     update_progress = pyqtSignal(int)
     update_status = pyqtSignal(str)
     parsing_finished = pyqtSignal()
+    telegram_auth_needed = pyqtSignal()
 
     def __init__(self):
-        """Инициализация парсера с добавлением новых атрибутов для хранения информации о последних загруженных сообществах"""
+        """Инициализация парсера"""
         super().__init__()
         self.setup_ui()
         self.setup_connections()
@@ -66,8 +215,14 @@ class VKParser(QMainWindow):
         self.communities = []
         self.save_folder = os.path.join(os.getcwd(), "результаты_парсинга")
         
+        self.telegram_parser = TelegramParser()
+        self.ok_parser = OKParser()
+        if OK_TOKEN:
+            self.ok_parser.auth(OK_TOKEN)
+        
         self.last_communities_file = None
         self.last_communities_hash = None
+        self.telegram_auth_data = None
         
         if not os.path.exists(self.save_folder):
             os.makedirs(self.save_folder)
@@ -219,18 +374,23 @@ class VKParser(QMainWindow):
             r'vk\.com/([a-z0-9_\-\.]+)',
             r'club(\d+)',
             r'public(\d+)',
-            r'event(\d+)',
             r'([a-z0-9_\-\.]+)$'
         ]
 
         patterns_ok = [
             r'ok\.ru/([a-z0-9_\-\.]+)',
-            r'club(\d+)'
+            r'group/([a-z0-9_\-\.]+)',
+            r'topic/([a-z0-9_\-\.]+)',
+            r'profile/([a-z0-9_\-\.]+)',
+            r'video/([a-z0-9_\-\.]+)',
+            r'statuses/([a-z0-9_\-\.]+)'
         ]
 
         patterns_tg = [
+            r'telegram.me ([a-z0-9_\-\.]+)',
             r'tg\.me/([a-z0-9_\-\.]+)',
-            r't\.me/([a-z0-9_\-\.]+)'
+            r't\.me/([a-z0-9_\-\.]+)',
+            r'telegram\.org/([a-z0-9_\-\.]+)'
         ]
 
         for pattern in patterns_vk:
@@ -238,20 +398,15 @@ class VKParser(QMainWindow):
             if match:
                 domain = match.group(1)
                 return f"vk_{domain}"
-        return None
-        
-        # пока что для шаблона
+            
         for pattern in patterns_ok:
+            match = re.search(pattern, link)
             if match:
-                if match.group(1):
-                    domain = match.group(1)
-                    return f"ok_{domain}"
-                else:
-                    domain = match.group(2)
-                    return f"ok_{domain}"
-        return None
-        
+                domain = match.group(1)
+                return f"ok_{domain}"
+            
         for pattern in patterns_tg:
+            match = re.search(pattern, link)
             if match:
                 domain = match.group(1)
                 return f"tg_{domain}"
@@ -324,7 +479,7 @@ class VKParser(QMainWindow):
                     break
                     
             except Exception as e:
-                logging.error(f"Ошибка при получении постов: {str(e)}")
+                logging.error(f"Ошибка при получении постов: {str(e)} {domain}")
                 break
                 
         return posts
@@ -354,6 +509,196 @@ class VKParser(QMainWindow):
                 })
                 
         return results
+
+    async def authenticate_telegram(self, phone, code=None, password=None):
+        """Асинхронная аутентификация в Telegram"""
+        try:
+            return await self.telegram_parser.auth(phone, code, password)
+        except Exception as e:
+            logging.error(f"Ошибка аутентификации Telegram: {str(e)}")
+            return False
+
+    def get_telegram_posts(self, domain, start_date, end_date):
+        """Получение постов из Telegram канала"""
+        if not domain.startswith('tg_'):
+            logging.error(f"Некорректный домен для Telegram: {domain}")
+            return []
+            
+        channel_name = domain[3:]
+        
+        if not self.telegram_parser.client:
+            if not self.show_telegram_auth_dialog():
+                return []
+        
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            posts = loop.run_until_complete(
+                self.telegram_parser.get_channel_posts(channel_name, start_date, end_date)
+            )
+            return posts
+        except Exception as e:
+            logging.error(f"Ошибка получения постов Telegram: {str(e)}")
+            return []
+        finally:
+            loop.close()
+
+    def show_telegram_auth_dialog(self):
+        """Показывает диалог аутентификации Telegram и возвращает True если успешно"""
+        auth_dialog = uic.loadUi("telegram_auth.ui")
+        auth_dialog.setWindowTitle("Авторизация в Telegram")
+        result = False
+        
+        def handle_submit():
+            nonlocal result
+            phone = auth_dialog.phoneEdit.text().strip()
+            code = auth_dialog.codeEdit.text().strip() if not auth_dialog.codeEdit.isHidden() else None
+            password = auth_dialog.passwordEdit.text().strip() if not auth_dialog.passwordEdit.isHidden() else None
+            
+            if not phone:
+                QMessageBox.warning(auth_dialog, "Ошибка", "Введите номер телефона")
+                return
+                
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                auth_result = loop.run_until_complete(
+                    self.telegram_parser.auth(phone, code, password)
+                )
+                
+                if auth_result:
+                    result = True
+                    auth_dialog.accept()
+                else:
+                    if not auth_dialog.codeEdit.isVisible():
+                        auth_dialog.codeLabel.setHidden(False)
+                        auth_dialog.codeEdit.setHidden(False)
+                        auth_dialog.phoneEdit.setEnabled(False)
+                        QMessageBox.information(auth_dialog, "Информация", "Введите код из Telegram")
+                    else:
+                        QMessageBox.warning(auth_dialog, "Ошибка", "Не удалось авторизоваться")
+            except SessionPasswordNeededError:
+                auth_dialog.passwordLabel.setHidden(False)
+                auth_dialog.passwordEdit.setHidden(False)
+                QMessageBox.information(auth_dialog, "Информация", "Введите пароль 2FA")
+            except Exception as e:
+                QMessageBox.warning(auth_dialog, "Ошибка", f"Ошибка авторизации: {str(e)}")
+            finally:
+                loop.close()
+        
+        auth_dialog.submitButton.clicked.connect(handle_submit)
+        auth_dialog.cancelButton.clicked.connect(auth_dialog.reject)
+        
+        auth_dialog.exec_()
+        return result
+
+    def get_ok_posts(self, domain, start_date, end_date):
+        """Получение постов из OK группы"""
+        if not domain.startswith('ok_'):
+            logging.error(f"Некорректный домен для OK: {domain}")
+            return []
+            
+        group_id = domain[3:]
+        
+        try:
+            # Пытаемся преобразовать group_id в число (если это числовой ID)
+            try:
+                group_id = int(group_id)
+            except ValueError:
+                pass  # Оставляем как строку, если это не число
+                
+            return self.ok_parser.get_group_posts(group_id, start_date, end_date)
+        except Exception as e:
+            logging.error(f"Ошибка получения постов OK: {str(e)}")
+            return []
+
+    def process_community(self, community, search_texts, start_date, end_date):
+        if self.stop_flag:
+            return None
+        try:
+            posts = []
+            if community['domain'].startswith('vk_'):
+                posts = self.get_group_posts(community['domain'], start_date, end_date)
+            elif community['domain'].startswith('tg_'):
+                posts = self.get_telegram_posts(community['domain'], start_date, end_date)
+            elif community['domain'].startswith('ok_'):
+                posts = self.get_ok_posts(community['domain'], start_date, end_date)
+            else:
+                return None
+            
+            if not posts:
+                return None
+                
+            results = self.search_text_in_posts(posts, search_texts)
+            return {'community': community, 'results': results} if results else None
+            
+        except Exception as e:
+            logging.error(f"Ошибка обработки сообщества {community['domain']}: {str(e)}")
+            return None
+
+    def show_telegram_auth_dialog(self):
+        """Показывает диалог аутентификации Telegram"""
+        auth_dialog = uic.loadUi("telegram_auth.ui")
+        auth_dialog.setWindowTitle("Авторизация в Telegram")
+        
+        def handle_submit():
+            phone = auth_dialog.phoneEdit.text().strip()
+            code = auth_dialog.codeEdit.text().strip() if not auth_dialog.codeEdit.isHidden() else None
+            password = auth_dialog.passwordEdit.text().strip() if not auth_dialog.passwordEdit.isHidden() else None
+            
+            if not phone:
+                QMessageBox.warning(auth_dialog, "Ошибка", "Введите номер телефона")
+                return
+                
+            # Сохраняем данные для последующих попыток
+            self.telegram_auth_data = {
+                'phone': phone,
+                'code': code,
+                'password': password
+            }
+            
+            # Пытаемся авторизоваться
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                auth_result = loop.run_until_complete(
+                    self.authenticate_telegram(phone, code, password)
+                )
+                
+                if auth_result:
+                    auth_dialog.accept()
+                else:
+                    # Показываем поле для кода, если требуется
+                    if not auth_dialog.codeEdit.isVisible():
+                        auth_dialog.codeLabel.setHidden(False)
+                        auth_dialog.codeEdit.setHidden(False)
+                        auth_dialog.phoneEdit.setEnabled(False)
+                        QMessageBox.information(auth_dialog, "Информация", "Введите код из Telegram")
+                    else:
+                        QMessageBox.warning(auth_dialog, "Ошибка", "Не удалось авторизоваться")
+            except SessionPasswordNeededError:
+                auth_dialog.passwordLabel.setHidden(False)
+                auth_dialog.passwordEdit.setHidden(False)
+                QMessageBox.information(auth_dialog, "Информация", "Введите пароль 2FA")
+            except Exception as e:
+                QMessageBox.warning(auth_dialog, "Ошибка", f"Ошибка авторизации: {str(e)}")
+            finally:
+                loop.close()
+        
+        auth_dialog.submitButton.clicked.connect(handle_submit)
+        auth_dialog.cancelButton.clicked.connect(auth_dialog.reject)
+        
+        return auth_dialog.exec_()
+
+    def setup_connections(self):
+        self.parseButton.clicked.connect(self.start_parsing)
+        self.selectFolderButton.clicked.connect(self.select_save_folder)
+        self.loadCommunitiesButton.clicked.connect(self.load_communities_file)
+        
+        self.update_progress.connect(self.progressBar.setValue)
+        self.update_status.connect(self.statusLabel.setText)
+        self.parsing_finished.connect(self.on_parsing_finished)
+        self.telegram_auth_needed.connect(self.show_telegram_auth_dialog)
 
     def process_community(self, community, search_texts, start_date, end_date):
         if self.stop_flag:
