@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+  <class>TelegramCodeDialog</class>
+  <widget class="QDialog" name="TelegramCodeDialog">
+    <property name="geometry">
+      <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>300</width>
+        <height>200</height>
+      </rect>
+    </property>
+    <property name="windowTitle">
+      <string>Авторизация Telegram - Шаг 2/2</string>
+    </property>
+    <property name="styleSheet">
+      <string notr="true">[...аналогично первому окну...]</string>
+    </property>
+    <layout class="QVBoxLayout">
+      <item>
+        <widget class="QLabel" name="codeLabel">
+        <property name="text">
+            <string>Введите код из Telegram:</string>
+        </property>
+        </widget>
+      </item>
+      <item>
+        <widget class="QLineEdit" name="codeEdit"/>
+      </item>
+      <item>
+        <widget class="QLabel" name="passwordLabel" hidden="true">
+          <property name="text">
+            <string>Пароль (2FA):</string>
+          </property>
+        </widget>
+      </item>
+      <item>
+        <widget class="QLineEdit" name="passwordEdit" hidden="true"/>
+      </item>
+      <item>
+        <layout class="QHBoxLayout">
+          <item>
+            <widget class="QPushButton" name="submitButton">
+              <property name="text">
+                <string>Подтвердить</string>
+              </property>
+            </widget>
+          </item>
+          <item>
+            <widget class="QPushButton" name="cancelButton">
+              <property name="text">
+                <string>Отмена</string>
+              </property>
+            </widget>
+          </item>
+        </layout>
+      </item>
+    </layout>
+  </widget>
+</ui>

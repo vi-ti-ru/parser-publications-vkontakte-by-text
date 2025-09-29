@@ -1,33 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
-  <class>TelegramAuthDialog</class>
-  <widget class="QDialog" name="TelegramAuthDialog">
+  <class>TelegramAuthPhoneDialog</class>
+  <widget class="QDialog" name="TelegramAuthPhoneDialog">
     <property name="geometry">
       <rect>
         <x>0</x>
         <y>0</y>
         <width>300</width>
-        <height>250</height>
+        <height>150</height>
       </rect>
     </property>
     <property name="windowTitle">
-      <string>Авторизация в Telegram</string>
+      <string>Авторизация Telegram - Шаг 1/2</string>
     </property>
     <property name="styleSheet">
       <string notr="true">
-        QDialog {
-          background-color: #353535;
-        }
-        QLabel {
-          color: white;
-          font-size: 12px;
-        }
-        QLineEdit {
-          background-color: #454545;
-          color: white;
-          border: 1px solid #555;
+        QDialog { background-color: #353535; }
+        QLabel { color: white; font-size: 12px; }
+        QLineEdit { 
+          background-color: #454545; 
+          color: white; 
+          border: 1px solid #555; 
           padding: 5px;
-          font-size: 12px;
         }
         QPushButton {
           background-color: #505050;
@@ -35,19 +29,14 @@
           border: 1px solid #555;
           padding: 7px;
           min-width: 80px;
-          font-size: 12px;
-          border-radius: 4px;
-        }
-        QPushButton:hover {
-          background-color: #606060;
         }
       </string>
     </property>
-    <layout class="QVBoxLayout" name="verticalLayout">
+    <layout class="QVBoxLayout">
       <item>
-        <widget class="QLabel" name="phoneLabel">
+        <widget class="QLabel">
           <property name="text">
-            <string>Введите номер телефона:</string>
+            <string>Введите номер телефона с кодом страны:</string>
           </property>
         </widget>
       </item>
@@ -59,58 +48,23 @@
         </widget>
       </item>
       <item>
-        <widget class="QLabel" name="codeLabel" hidden="true">
-          <property name="text">
-            <string>Введите код из Telegram:</string>
-          </property>
-        </widget>
-      </item>
-      <item>
-        <widget class="QLineEdit" name="codeEdit" hidden="true"/>
-      </item>
-      <item>
-        <widget class="QLabel" name="passwordLabel" hidden="true">
-          <property name="text">
-            <string>Введите пароль (2FA):</string>
-          </property>
-        </widget>
-      </item>
-      <item>
-        <widget class="QLineEdit" name="passwordEdit" hidden="true"/>
-      </item>
-      <item>
-        <widget class="QPushButton" name="submitButton">
-          <property name="text">
-            <string>Продолжить</string>
-          </property>
-        </widget>
-      </item>
-      <item>
-        <widget class="QPushButton" name="cancelButton">
-          <property name="text">
-            <string>Отмена</string>
-          </property>
-        </widget>
+        <layout class="QHBoxLayout">
+          <item>
+            <widget class="QPushButton" name="submitButton">
+              <property name="text">
+                <string>Далее</string>
+              </property>
+            </widget>
+          </item>
+          <item>
+            <widget class="QPushButton" name="cancelButton">
+              <property name="text">
+                <string>Отмена</string>
+              </property>
+            </widget>
+          </item>
+        </layout>
       </item>
     </layout>
   </widget>
-  <resources/>
-  <connections>
-    <connection>
-      <sender>cancelButton</sender>
-      <signal>clicked()</signal>
-      <receiver>TelegramAuthDialog</receiver>
-      <slot>reject()</slot>
-      <hints>
-        <hint type="sourcelabel">
-          <x>248</x>
-          <y>254</y>
-        </hint>
-        <hint type="destinationlabel">
-          <x>218</x>
-          <y>274</y>
-        </hint>
-      </hints>
-    </connection>
-  </connections>
 </ui>
