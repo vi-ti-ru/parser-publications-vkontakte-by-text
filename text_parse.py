@@ -93,7 +93,8 @@ class TelegramParser:
                         'date': message.date.strftime('%d.%m.%Y %H:%M'),
                         'views': message.views or 0,
                         'id': message.id,
-                        'link': f"https://t.me/{channel_name}/{message.id}"
+                        'link': f"https://t.me/{channel_name}/{message.id}",
+                        'type': 'пост'  # Добавляем тип контента
                     }
                     
                     if message.media:
@@ -244,7 +245,7 @@ class VKParser(QMainWindow):
                 logging.error(f"Ошибка загрузки конфига: {str(error)}")
             finally:
                 f.close()
-                
+
     def save_communities_config(self):
         """
         Сохраняет текущую конфигурацию (путь к файлу сообществ и их хэш) в JSON-файл
@@ -329,8 +330,11 @@ class VKParser(QMainWindow):
 
         link = str(link).strip().lower()
         
+        # Обрабатываем vk.ru и vk.com как эквивалентные
+        link = link.replace('vk.com', 'vk.ru')
+        
         vk_patterns = [
-            r'(?:https?://)?(?:www\.)?vk\.com/([a-z0-9_\-\.]+)/?',
+            r'(?:https?://)?(?:www\.)?vk\.ru/([a-z0-9_\-\.]+)/?',
             r'club(\d+)',
             r'public(\d+)',
             r'id(\d+)',
@@ -430,29 +434,85 @@ class VKParser(QMainWindow):
                 
         return posts
 
-    def search_text_in_posts(self, posts, search_texts):
+    def get_post_comments(self, owner_id, post_id, start_date, end_date):
+        """Получение комментариев к посту"""
+        comments = []
+        offset = 0
+        start_ts = int(time.mktime(start_date.timetuple()))
+        end_ts = int(time.mktime(end_date.timetuple()))
+        
+        while offset < 100 and not self.stop_flag:  # Ограничим количество комментариев
+            try:
+                data = self.make_vk_request('wall.getComments', {
+                    'owner_id': owner_id,
+                    'post_id': post_id,
+                    'count': 100,
+                    'offset': offset,
+                    'need_likes': 1,
+                    'preview_length': 0
+                })
+                
+                if not data or 'response' not in data:
+                    break
+                    
+                items = data['response'].get('items', [])
+                for comment in items:
+                    if start_ts <= comment['date'] < end_ts:
+                        comment['type'] = 'комментарий'  # Добавляем тип контента
+                        comment['post_id'] = post_id  # Сохраняем ID поста
+                        comment['owner_id'] = owner_id  # Сохраняем ID владельца
+                        comments.append(comment)
+                
+                offset += len(items)
+                if len(items) < 100:
+                    break
+                    
+            except Exception as e:
+                logging.error(f"Ошибка при получении комментариев: {str(e)}")
+                break
+                
+        return comments
+
+    def search_text_in_content(self, content_items, search_texts, content_type='пост'):
+        """Поиск текста в контенте (постах или комментариях)"""
         results = []
         search_texts = [t.lower() for t in search_texts]
         
-        for post in posts:
+        for item in content_items:
             if self.stop_flag:
                 break
                 
-            text = post.get('text', '').lower()
+            text = item.get('text', '').lower()
             found_words = [word for word in search_texts if word in text]
             
             if found_words:
-                results.append({
-                    'post_id': post['id'],
-                    'owner_id': post['owner_id'],
-                    'text': post.get('text', ''),
-                    'date': datetime.fromtimestamp(post['date']).strftime('%d.%m.%Y %H:%M'),
-                    'views': post.get('views', {}).get('count', 0),
-                    'likes': post.get('likes', {}).get('count', 0),
-                    'reposts': post.get('reposts', {}).get('count', 0),
-                    'link': f"https://vk.com/wall{post['owner_id']}_{post['id']}",
-                    'found_words': ', '.join(found_words)  # слова по которым найден текст
-                })
+                if content_type == 'пост':
+                    result = {
+                        'type': 'пост',
+                        'post_id': item['id'],
+                        'owner_id': item['owner_id'],
+                        'text': item.get('text', ''),
+                        'date': datetime.fromtimestamp(item['date']).strftime('%d.%m.%Y %H:%M'),
+                        'views': item.get('views', {}).get('count', 0),
+                        'likes': item.get('likes', {}).get('count', 0),
+                        'reposts': item.get('reposts', {}).get('count', 0),
+                        'link': f"https://vk.com/wall{item['owner_id']}_{item['id']}",
+                        'found_words': ', '.join(found_words)
+                    }
+                else:  # комментарий
+                    result = {
+                        'type': 'комментарий',
+                        'post_id': item['post_id'],
+                        'owner_id': item['owner_id'],
+                        'comment_id': item['id'],
+                        'text': item.get('text', ''),
+                        'date': datetime.fromtimestamp(item['date']).strftime('%d.%m.%Y %H:%M'),
+                        'likes': item.get('likes', {}).get('count', 0),
+                        'link': f"https://vk.com/wall{item['owner_id']}_{item['post_id']}?reply={item['id']}",
+                        'found_words': ', '.join(found_words)
+                    }
+                
+                results.append(result)
                 
         return results
 
@@ -558,17 +618,26 @@ class VKParser(QMainWindow):
             return None
         try:
             if community['domain'].startswith('vk_'):
+                # Получаем посты
                 posts = self.get_group_posts(community['domain'], start_date, end_date)
+                post_results = self.search_text_in_content(posts, search_texts, 'пост')
+                
+                # Получаем комментарии для каждого поста
+                comment_results = []
+                for post in posts:
+                    comments = self.get_post_comments(post['owner_id'], post['id'], start_date, end_date)
+                    comment_results.extend(self.search_text_in_content(comments, search_texts, 'комментарий'))
+                
+                # Объединяем результаты
+                results = post_results + comment_results
+                return {'community': community, 'results': results} if results else None
+                
             elif community['domain'].startswith('tg_'):
                 posts = self.get_telegram_posts(community['domain'], start_date, end_date)
+                results = self.search_text_in_content(posts, search_texts, 'пост')
+                return {'community': community, 'results': results} if results else None
             else:
                 return None
-            
-            if not posts:
-                return None
-                
-            results = self.search_text_in_posts(posts, search_texts)
-            return {'community': community, 'results': results} if results else None
             
         except Exception as e:
             logging.error(f"Ошибка обработки сообщества {community['domain']}: {str(e)}")
@@ -634,8 +703,8 @@ class VKParser(QMainWindow):
             
             if data:
                 headers = [
-                    'Ссылка на сообщество', 'Название', 'Ссылка на пост',
-                    'Текст поста', 'Найденные слова', 'Дата', 'Просмотры', 'Лайки', 'Репосты'
+                    'Тип', 'Ссылка на сообщество', 'Название', 'Ссылка на пост/комментарий',
+                    'Текст', 'Найденные слова', 'Дата', 'Просмотры', 'Лайки', 'Репосты'
                 ]
                 
                 for col_num, header in enumerate(headers, 1):
@@ -648,16 +717,17 @@ class VKParser(QMainWindow):
                 for item in data:
                     comm = item['community']
                     for res in item['results']:
-                        ws.cell(row=row_num, column=1, value=comm['original_link']).font = LINK_FONT
-                        ws.cell(row=row_num, column=2, value=comm['name'])
-                        ws.cell(row=row_num, column=3, value=res['link']).font = LINK_FONT
-                        text_cell = ws.cell(row=row_num, column=4, value=res['text'])
+                        ws.cell(row=row_num, column=1, value=res.get('type', 'пост'))
+                        ws.cell(row=row_num, column=2, value=comm['original_link']).font = LINK_FONT
+                        ws.cell(row=row_num, column=3, value=comm['name'])
+                        ws.cell(row=row_num, column=4, value=res['link']).font = LINK_FONT
+                        text_cell = ws.cell(row=row_num, column=5, value=res['text'])
                         text_cell.alignment = Alignment(wrap_text=True)
-                        ws.cell(row=row_num, column=5, value=res['found_words'])  # Новая колонка с найденными словами
-                        ws.cell(row=row_num, column=6, value=res['date'])
-                        ws.cell(row=row_num, column=7, value=res['views'])
-                        ws.cell(row=row_num, column=8, value=res['likes'])
-                        ws.cell(row=row_num, column=9, value=res['reposts'])
+                        ws.cell(row=row_num, column=6, value=res['found_words'])
+                        ws.cell(row=row_num, column=7, value=res['date'])
+                        ws.cell(row=row_num, column=8, value=res.get('views', 0))
+                        ws.cell(row=row_num, column=9, value=res.get('likes', 0))
+                        ws.cell(row=row_num, column=10, value=res.get('reposts', 0))
                         row_num += 1
                 
                 for column in ws.columns:
